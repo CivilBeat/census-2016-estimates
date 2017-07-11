@@ -1,0 +1,142 @@
+---
+title: "US Census: Those Over 65 Are Hawaii’s Fastest Growing Group"
+output: html_notebook
+---
+
+Data analysis behind Civil Beat's July 6, 2017 story ["US Census: Those Over 65 Are Hawaii’s Fastest Growing Group"](http://www.civilbeat.org/2017/07/infographic-snapshots-of-hawaii-in-new-census-data/?mc_cid=810bf18ad2&amp;mc_eid=03c9a17fdc)
+
+The data are from the Hawaii Department of Business, Economic Development & Tourism's [latest population estimates](http://census.hawaii.gov/home/population-estimate/). The data were downloaded as Microsoft Excel .xls files. After downloading, they were saved as .csv files for ease of use. The main changes involved combining multiple sheets into one and renaming variables to avoid spaces.
+
+### Setup
+
+Load R packages used for analysis.
+
+```{r setup, message=FALSE}
+library(tidyverse)
+library(stringr)
+```
+
+Read in csv data.
+
+```{r import, message=FALSE}
+hi_pop_age <- read_csv("hawaii_pop_age.csv") #originally PEP_2016_PEPAGESEX_HI.xls
+housing_units <- read_csv("housing_units.csv") #originally PEP_2016_PEPANNHU.xls
+race_hi <- read_csv("hawaii_race.csv")
+```
+
+### Age Analysis
+
+The story states:
+
+"Nearly three-quarters of the state’s total net population growth from 2010 to 2016 was attributable to residents 65 and older." Here is the calculation behind that statistic:
+
+```{r age_statistic_1}
+pop_increase <- filter(hi_pop_age, age_group == "Total") %>% mutate(pop_change = pop_est_1july2016 - census_pop_1april2010) %>% select(pop_change)
+
+over65_pop_increase <- filter(hi_pop_age, age_group == "65 years and over") %>% mutate(pop_change = pop_est_1july2016 - census_pop_1april2010) %>% select(pop_change)
+
+over65_pop_increase/pop_increase
+```
+
+The first chart was created using the net population change in each age group, which was calculated with the following:
+
+```{r net_change_by_age_group}
+mutate(hi_pop_age, pop_change = pop_est_1july2016 - census_pop_1april2010) %>% 
+  filter(age_group %in% c("65 years and over", "45 to 64 years", "25 to 44 years", "18 to 24 years", "Under 18 years"))
+```
+
+The second chart required some reshaping of the data:
+
+```{r reshape_for_chart}
+age_for_viz <- filter(hi_pop_age, age_group %in% c("Under 18 years", "18 to 24 years", "25 to 44 years", "45 to 64 years", "65 years and over")) %>% select(age_group, census_pop_1april2010, pop_est_1july2016)
+colnames(age_for_viz) <- c("age_group", "2010", "2016")
+age_for_viz <- gather(age_for_viz, `2010`, `2016`, key = "year", value = "pop")
+age_for_viz$age_group <- factor(age_for_viz$age_group, levels = c("65 years and over", "45 to 64 years", "25 to 44 years", "18 to 24 years", "Under 18 years"))
+age_for_viz$year <- factor(age_for_viz$year, levels = c("2016", "2010"))
+```
+
+The proportions were calculated as follows:
+
+```{r proportions_2010}
+filter(age_for_viz, year == "2010") %>% mutate(pct = pop/hi_pop_age$census_pop_1april2010[1])
+```
+
+```{r proportions_2016}
+filter(age_for_viz, year == "2016") %>% mutate(pct = pop/hi_pop_age$pop_est_1july2016[1])
+```
+
+### Housing Analysis
+
+Number of housing units added since 2010:
+
+```{r housing_units_added}
+filter(housing_units, state == "Hawaii") %>% mutate(added_units = est_units_16 - units_census_1april2010) %>% 
+  select(added_units)
+```
+
+Percent change in number of housing units:
+
+```{r housing_units_pct_change}
+filter(housing_units, state == "Hawaii") %>% mutate(units_pct_change = 100*(est_units_16 - units_census_1april2010)/units_census_1april2010) %>% 
+  select(units_pct_change)
+```
+
+Number of residents per housing unit in 2010:
+
+```{r residents_per_unit_2010}
+hi_pop_age$census_pop_1april2010[which(hi_pop_age$age_group == "Total")]/housing_units$units_census_1april2010[which(housing_units$state == "Hawaii")]
+```
+
+Number of residents per housing unit in 2016
+
+```{r residents_per_unit_2016}
+hi_pop_age$pop_est_1july2016[which(hi_pop_age$age_group == "Total")]/housing_units$est_units_16[which(housing_units$state == "Hawaii")]
+```
+
+For the chart in this section, the year over year change was calculated for housing and population as follows:
+
+```{r}
+housing_change <- filter(housing_units, state == "Hawaii") %>% 
+  mutate(chg_10_11 = 100*(est_units_11 - units_census_1april2010)/units_census_1april2010,
+         chg_11_12 = 100*(est_units_12 - est_units_11)/est_units_11,
+         chg_12_13 = 100*(est_units_13 - est_units_12)/est_units_12,
+         chg_13_14 = 100*(est_units_14 - est_units_13)/est_units_13,
+         chg_14_15 = 100*(est_units_15 - est_units_14)/est_units_14,
+         chg_15_16 = 100*(est_units_16 - est_units_15)/est_units_15) %>% 
+  select(state, starts_with("chg")) %>% gather(starts_with("chg"), key = "year", value = "change")
+housing_change$state <- str_replace_all(housing_change$state, "Hawaii", "housing")
+colnames(housing_change) <- c("type", "year", "change")
+
+pop_change <- mutate(hi_pop_age, chg_10_11 = 100*(pop_est_11 - census_pop_1april2010)/census_pop_1april2010,
+       chg_11_12 = 100*(pop_est_12 - pop_est_11)/pop_est_11,
+       chg_12_13 = 100*(pop_est_13 - pop_est_12)/pop_est_12,
+       chg_13_14 = 100*(pop_est_14 - pop_est_13)/pop_est_13,
+       chg_14_15 = 100*(pop_est_15 - pop_est_14)/pop_est_14,
+       chg_15_16 = 100*(pop_est_1july2016 - pop_est_15)/pop_est_15) %>% 
+  filter(age_group == "Total") %>% select(age_group, starts_with("chg")) %>% 
+  gather(starts_with("chg"), key = "year", value = "change")
+pop_change$age_group <- str_replace_all(pop_change$age_group, "Total", "population")
+colnames(pop_change) <- c("type", "year", "change")
+
+growth <- rbind(housing_change, pop_change)
+```
+
+### Diversity Analysis
+
+The graph and statistics in the last section came primarily from the calculation of the percentage of Hawaii's population in each racial group:
+
+```{r}
+filter(race_hi, year_hispanic %in% c("total_2010", "total_2016")) %>% 
+  mutate(pct_white = white/total, pct_black = black/total, pct_am_ind = am_ind_alaska/total, 
+         pct_asian = asian/total, pct_hawaii = hawaiian_pac_islander/total, 
+         pct_two_plus = two_or_more_races/total) %>% select(year_hispanic, starts_with("pct")) %>% 
+  gather(starts_with("pct"), key = race, value = percent) %>% spread(key = year_hispanic, value = percent)
+```
+
+
+The last paragraph about the breakdown of population by race also used the percent change from 2010 to 2016 of each racial group, calculated as follows:
+
+```{r}
+select(filter(race_hi, year_hispanic == "total_2016"), -year_hispanic)/select(filter(race_hi, year_hispanic == "total_2010"), -year_hispanic)
+```
+
